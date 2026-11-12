@@ -2,7 +2,7 @@
 import { PublicPage } from "@/components/public-page";
 import { ConnectDialog } from "@/components/connect-dialog";
 import { CalendlyDialog } from "@/components/calendly-dialog";
-import { fetchContactInfo } from "@/lib/strapi";
+import { fetchContactInfo, fetchSiteSettings } from "@/lib/strapi";
 import { ContactDetailsLabel, TurningIdeasLabel, LiveStreamLabel, ListenLiveLabel, GetDirectionsLabel } from "@/components/connect-labels";
 import { createPageMetadata } from "@/lib/seo";
 
@@ -28,7 +28,7 @@ const FALLBACK_CONTACT = {
 };
 
 export default async function ConnectPage() {
-  const cms = await fetchContactInfo();
+  const [cms, siteSettings] = await Promise.all([fetchContactInfo(), fetchSiteSettings()]);
   const c = {
     phone1: cms?.phone1 ?? FALLBACK_CONTACT.phone1,
     phone2: cms?.phone2 ?? FALLBACK_CONTACT.phone2,
@@ -129,7 +129,7 @@ export default async function ConnectPage() {
                 {/* Action Buttons Row */}
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <ConnectDialog initialTopic="talk" />
-                  <CalendlyDialog />
+                  <CalendlyDialog bookingUrl={siteSettings?.calendlyUrl} />
                 </div>
               </section>
             </div>

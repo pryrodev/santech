@@ -24,7 +24,9 @@ export default async function EVisitorsPage() {
       cmsFeatures={cmsFeatures}
       cmsMilestones={cmsMilestones}
       cmsFaqs={cmsFaqs}
+      videoSrc={siteSettings?.eVisitorsVideo ?? undefined}
       videoPoster={siteSettings?.eVisitorsVideoPoster ?? siteSettings?.homepageVideoPoster ?? undefined}
+      bookingUrl={siteSettings?.calendlyUrl ?? undefined}
     />
   );
 }

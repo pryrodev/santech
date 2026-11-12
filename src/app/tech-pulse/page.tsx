@@ -1,7 +1,5 @@
 import { PublicPage } from "@/components/public-page";
-import { StickyPageMenu } from "@/components/sticky-page-menu";
-import { TechPulseSliderBrowser } from "@/components/tech-pulse-slider-browser";
-import { TechPulseOpportunities } from "@/components/tech-pulse-opportunities";
+import { TechPulseContent } from "@/components/tech-pulse-content";
 import { fetchTechPulseArticles, fetchOpportunities } from "@/lib/strapi";
 import { createPageMetadata } from "@/lib/seo";
 
@@ -21,21 +19,7 @@ const pulseMenu = [
   { key: "research", label: "Research & impact", href: "/tech-pulse?type=research" },
 ] as const;
 
-export default async function TechPulsePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ type?: string }>;
-}) {
-  const params = await searchParams;
-  const isOpportunities = params.type === "opportunities";
-  const activeMenu = params.type || "news";
-  const initialCategory =
-    params.type === "research"
-      ? "impact"
-      : params.type || "news";
-
-  // Fetch all articles from Strapi upfront so the client component receives
-  // pre-loaded data and doesn't need its own network call.
+export default async function TechPulsePage() {
   const [articles, cmsOpportunities] = await Promise.all([
     fetchTechPulseArticles(),
     fetchOpportunities(),
@@ -43,20 +27,7 @@ export default async function TechPulsePage({
 
   return (
     <PublicPage>
-      <StickyPageMenu items={pulseMenu} activeKey={activeMenu} ariaLabel="Tech Pulse sections" translationKey="pulse" />
-      <section className="border-t border-slate-200 px-3 pb-8 pt-2 sm:px-8 lg:px-12 lg:pb-10 lg:pt-3">
-        <div className="mx-auto max-w-[1600px] border border-slate-200 bg-white p-4 sm:p-6 lg:p-7 shadow-xs">
-          {isOpportunities ? (
-            <TechPulseOpportunities cmsOpportunities={cmsOpportunities} />
-          ) : (
-            <TechPulseSliderBrowser
-              key={initialCategory}
-              initialCategory={initialCategory}
-              articles={articles}
-            />
-          )}
-        </div>
-      </section>
+      <TechPulseContent pulseMenu={pulseMenu} articles={articles} cmsOpportunities={cmsOpportunities} />
     </PublicPage>
   );
 }

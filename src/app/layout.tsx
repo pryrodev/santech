@@ -1,7 +1,9 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import { Exo } from "next/font/google";
 import Script from "next/script";
 import { fetchSiteSettings } from "@/lib/strapi";
+import { NavigationProgress } from "@/components/navigation-progress";
+import { QueryProvider } from "@/components/providers/query-provider";
 import "./globals.css";
 
 const exo = Exo({
@@ -51,7 +53,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             }
           } catch (_) {}`}
         </Script>
-        {children}
+        <QueryProvider>
+          <NavigationProgress />
+          {children}
+        </QueryProvider>
         <Script id="google-translate-init" strategy="afterInteractive">
           {`window.googleTranslateElementInit = function () {
             var hideGoogleChrome = function () {
@@ -124,3 +129,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     </html>
   );
 }
+
+
+

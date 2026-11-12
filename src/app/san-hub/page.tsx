@@ -1,16 +1,9 @@
 import { PublicPage } from "@/components/public-page";
-import { SanHubCatalog } from "@/components/san-hub-catalog";
-import { SanHubAboutSection } from "@/components/san-hub/san-hub-about-section";
-import { SanHubDigitalLibrary, type LibraryBook } from "@/components/san-hub/san-hub-digital-library";
-import { SanHubExploreSection } from "@/components/san-hub/san-hub-explore-section";
-import { SanHubImpactSection } from "@/components/san-hub/san-hub-impact-section";
-import { SanHubInsightsSection } from "@/components/san-hub/san-hub-insights-section";
-import { SanHubSectionMenu, type SanHubSectionId } from "@/components/san-hub/san-hub-section-menu";
-import { SanHubSectionReveal } from "@/components/san-hub/san-hub-section-reveal";
-import { SanHubTractionSection } from "@/components/san-hub/san-hub-traction-section";
-import { SanHubTestimonialSection } from "@/components/san-hub/san-hub-testimonial-section";
-import { fetchSanHubCatalogItems, fetchSanHubBooks, fetchTestimonials } from "@/lib/strapi";
-import { getSanHubCatalogHref, sanHubProgramItems } from "@/lib/san-hub-catalog-data";
+import { SanHubContent } from "@/components/san-hub-content";
+import type { LibraryBook } from "@/components/san-hub/san-hub-digital-library";
+import { fetchSanHubBooks, fetchTestimonials } from "@/lib/strapi";
+import { fetchPlatformCatalog, mapPlatformCatalogItem } from "@/lib/platform-courses";
+import { getSanHubCatalogHref, resolveSanHubCatalogSlug, sanHubProgramItems } from "@/lib/san-hub-catalog-data";
 import type { SanHubCatalogItem } from "@/lib/san-hub-catalog-data";
 import { createPageMetadata } from "@/lib/seo";
 
@@ -22,25 +15,18 @@ export function generateMetadata() {
   });
 }
 
-function resolveSection(value: string | undefined): SanHubSectionId {
-  return value === "explore" || value === "impact" || value === "programs" || value === "traction" || value === "insights" || value === "library" || value === "testimonials" ? value : "about";
-}
-
-export default async function SanHubPage({ searchParams }: { searchParams: Promise<{ section?: string }> }) {
-  const params = await searchParams;
-  const section = resolveSection(params.section);
-
+export default async function SanHubPage() {
   // Fetch from Strapi; fall back to hardcoded program items if empty
-  const [cmsItems, cmsBooks, cmsTestimonials] = await Promise.all([
-    fetchSanHubCatalogItems(),
+  const [platformItems, cmsBooks, cmsTestimonials] = await Promise.all([
+    fetchPlatformCatalog(),
     fetchSanHubBooks(),
     fetchTestimonials("san-hub"),
   ]);
-  const catalogItems: readonly SanHubCatalogItem[] = cmsItems.length > 0
-    ? cmsItems.map((i) => ({
-        id: i.slug,
+  const catalogItems: readonly SanHubCatalogItem[] = platformItems.length > 0
+    ? platformItems.map(mapPlatformCatalogItem).map((i) => ({
+        id: resolveSanHubCatalogSlug(i),
         category: i.category as SanHubCatalogItem["category"],
-        courseCategory: i.courseCategory?.name as SanHubCatalogItem["courseCategory"] | undefined,
+        courseCategory: i.courseCategory,
         title: i.title,
         provider: i.provider ?? "",
         description: i.description,
@@ -49,7 +35,7 @@ export default async function SanHubPage({ searchParams }: { searchParams: Promi
         duration: i.duration ?? "",
         level: i.level ?? "",
         badge: i.badge ?? undefined,
-        href: getSanHubCatalogHref({ id: i.slug, category: i.category as SanHubCatalogItem["category"] }),
+        href: getSanHubCatalogHref({ id: resolveSanHubCatalogSlug(i), category: i.category as SanHubCatalogItem["category"] }),
       }))
     : sanHubProgramItems;
 
@@ -70,22 +56,13 @@ export default async function SanHubPage({ searchParams }: { searchParams: Promi
 
   return (
     <PublicPage>
-      <SanHubSectionMenu activeSection={section} />
-
-      {section === "about" && <SanHubSectionReveal><SanHubAboutSection items={catalogItems} /></SanHubSectionReveal>}
-
-      {section === "explore" && <SanHubSectionReveal><SanHubExploreSection /></SanHubSectionReveal>}
-
-      {section === "impact" && <SanHubSectionReveal><SanHubImpactSection /></SanHubSectionReveal>}
-
-      {section === "programs" && <SanHubSectionReveal><SanHubCatalog compact items={programItems.length > 0 ? programItems : sanHubProgramItems} showFilters={false} showCategoryFilter={false} showResultSummary={false} withTopPadding categories={["Programs"]} /></SanHubSectionReveal>}
-
-      {section === "traction" && <SanHubSectionReveal><SanHubTractionSection /></SanHubSectionReveal>}
-
-      {section === "insights" && <SanHubSectionReveal><SanHubInsightsSection /></SanHubSectionReveal>}
-
-      {section === "library" && <SanHubSectionReveal><SanHubDigitalLibrary books={libraryBooks.length > 0 ? libraryBooks : undefined} /></SanHubSectionReveal>}
-      {section === "testimonials" && <SanHubSectionReveal><SanHubTestimonialSection items={cmsTestimonials} /></SanHubSectionReveal>}
+      <SanHubContent
+        catalogItems={catalogItems}
+        programItems={programItems}
+        libraryBooks={libraryBooks}
+        cmsTestimonials={cmsTestimonials}
+      />
     </PublicPage>
   );
 }
+

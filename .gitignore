@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 /.next/
+deploy/cpanel-package/
+deploy/santech-f-cpanel-build*.zip
 
 # Editor directories and files
 .vscode/*

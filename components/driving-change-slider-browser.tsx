@@ -193,7 +193,7 @@ export function DrivingChangeSliderBrowser({
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-slate-500">
-                Showing {totalCards} {totalCards === 1 ? "story" : "stories"} Â· Auto-sliding
+                Showing {totalCards} {totalCards === 1 ? "story" : "stories"} · Auto-sliding
               </p>
             </div>
 
@@ -342,7 +342,7 @@ export function DrivingChangeSliderBrowser({
               </div>
 
               <div className="text-[11px] font-bold text-slate-500">
-                Card {cardOffset + 1}â€“{Math.min(cardOffset + CARDS_PER_VIEW, totalCards)} of {totalCards}
+                Card {cardOffset + 1}“{Math.min(cardOffset + CARDS_PER_VIEW, totalCards)} of {totalCards}
               </div>
             </div>
           )}
@@ -475,3 +475,5 @@ export function DrivingChangeSliderBrowser({
     </div>
   );
 }
+
+

@@ -1,4 +1,4 @@
-/** @type {import('next').NextConfig} */
+﻿/** @type {import('next').NextConfig} */
 
 const strapiUrl = new URL(
   process.env.NEXT_PUBLIC_STRAPI_URL ?? 'http://localhost:1337'
@@ -7,6 +7,7 @@ const strapiUrl = new URL(
 const nextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
+    qualities: [75, 90],
     remotePatterns: [
       {
         protocol: 'https',
@@ -28,3 +29,4 @@ const nextConfig = {
 };
 
 export default nextConfig;
+

@@ -14,6 +14,7 @@ const sectionItems = [
 ] as const;
 
 export function CourseSectionNav({ course }: { course: SanHubCourse }) {
+  const visibleSectionItems = sectionItems.filter(({ id }) => id === "about" || (id === "outcomes" && course.details.length > 0) || (id === "courses" && course.courseSeries.length > 0) || (id === "testimonials" && course.testimonials.length > 0) || (id === "reviews" && Boolean(course.rating || course.reviewCount || course.testimonials.length)));
   const [activeSection, setActiveSection] = useState<(typeof sectionItems)[number]["id"]>("about");
   const [isStuck, setIsStuck] = useState(false);
   const stickySentinelRef = useRef<HTMLSpanElement>(null);
@@ -34,7 +35,7 @@ export function CourseSectionNav({ course }: { course: SanHubCourse }) {
   }, []);
 
   useEffect(() => {
-    const sections = sectionItems.map(({ id }) => document.getElementById(id)).filter((section): section is HTMLElement => Boolean(section));
+    const sections = visibleSectionItems.map(({ id }) => document.getElementById(id)).filter((section): section is HTMLElement => Boolean(section));
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
       if (visible) setActiveSection(visible.target.id as (typeof sectionItems)[number]["id"]);
@@ -56,7 +57,7 @@ export function CourseSectionNav({ course }: { course: SanHubCourse }) {
             </div>
           )}
           <nav aria-label="Course sections" className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {sectionItems.map((section) => <a key={section.id} href={`#${section.id}`} aria-current={activeSection === section.id ? "page" : undefined} className={`relative shrink-0 px-3 py-3 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary focus-visible:ring-inset ${activeSection === section.id ? "text-brand-secondary" : "text-slate-700 hover:text-brand-secondary"}`}>{section.label}{activeSection === section.id && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-brand-secondary" />}</a>)}
+            {visibleSectionItems.map((section) => <a key={section.id} href={`#${section.id}`} aria-current={activeSection === section.id ? "page" : undefined} className={`relative shrink-0 px-3 py-3 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-secondary focus-visible:ring-inset ${activeSection === section.id ? "text-brand-secondary" : "text-slate-700 hover:text-brand-secondary"}`}>{section.label}{activeSection === section.id && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-brand-secondary" />}</a>)}
           </nav>
         </div>
       </div>

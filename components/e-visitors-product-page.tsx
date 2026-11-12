@@ -259,13 +259,17 @@ export function EVisitorsProductPage({
   cmsFeatures,
   cmsMilestones,
   cmsFaqs,
+  videoSrc,
   videoPoster,
+  bookingUrl,
 }: {
   cmsTestimonials?: import("@/lib/strapi").Testimonial[];
   cmsFeatures?: import("@/lib/strapi").EVisitorsFeature[];
   cmsMilestones?: import("@/lib/strapi").ProductMilestone[];
   cmsFaqs?: import("@/lib/strapi").FaqItem[];
+  videoSrc?: string;
   videoPoster?: string;
+  bookingUrl?: string;
 }) {
   const activeTestimonials =
     cmsTestimonials && cmsTestimonials.length > 0
@@ -434,9 +438,7 @@ export function EVisitorsProductPage({
   return (
     <PublicPage>
       <div ref={pageAnimationRef}>
-        <section
-          className="relative isolate min-h-[min(760px,calc(100svh-7rem))] overflow-hidden border-b border-[#0a1f44] bg-[#07152d] text-white"
-        >
+        <section className="relative isolate min-h-[min(760px,calc(100svh-7rem))] overflow-hidden border-b border-[#0a1f44] bg-[#07152d] text-white">
           <Image
             src={videoPoster || "/images/image-when-video-loadings.png"}
             alt=""
@@ -446,25 +448,27 @@ export function EVisitorsProductPage({
             className={`pointer-events-none absolute inset-0 z-0 size-full object-cover transition-opacity duration-500 ${isHeroVideoReady ? "opacity-0" : "opacity-100"}`}
             aria-hidden="true"
           />
-          <video
-            ref={videoRef}
-            src="/E-VS.mp4"
-            poster={videoPoster || "/images/image-when-video-loadings.png"}
-            className={`absolute inset-0 z-0 size-full object-cover transition-opacity duration-500 ${isHeroVideoReady ? "opacity-100" : "opacity-0"}`}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            aria-label="E-Visitors visitor management platform"
-            onCanPlay={() => setIsHeroVideoReady(true)}
-            onLoadedData={() => setIsHeroVideoReady(true)}
-            onPlay={() => {
-              setIsHeroVideoReady(true);
-              setIsVideoPlaying(true);
-            }}
-            onPause={() => setIsVideoPlaying(false)}
-          />
+          {videoSrc ? (
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              poster={videoPoster || "/images/image-when-video-loadings.png"}
+              className={`absolute inset-0 z-0 size-full object-cover transition-opacity duration-500 ${isHeroVideoReady ? "opacity-100" : "opacity-0"}`}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              aria-label="E-Visitors visitor management platform"
+              onCanPlay={() => setIsHeroVideoReady(true)}
+              onLoadedData={() => setIsHeroVideoReady(true)}
+              onPlay={() => {
+                setIsHeroVideoReady(true);
+                setIsVideoPlaying(true);
+              }}
+              onPause={() => setIsVideoPlaying(false)}
+            />
+          ) : null}
           <div
             className="absolute inset-0 -z-0 bg-[linear-gradient(90deg,rgba(7,21,45,0.68)_0%,rgba(7,21,45,0.5)_34%,rgba(7,21,45,0.08)_72%,rgba(7,21,45,0.15)_100%)]"
             aria-hidden="true"
@@ -511,6 +515,7 @@ export function EVisitorsProductPage({
               <div className="mt-7 flex w-full flex-wrap justify-start gap-3 xl:justify-end">
                 <CalendlyDialog
                   label={t.requestDemo}
+                  bookingUrl={bookingUrl}
                   className="inline-flex items-center gap-2 rounded-lg bg-brand-cyan px-5 py-3 text-sm font-bold text-[#07152d] transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-[#07152d]"
                 />
                 <a
@@ -527,7 +532,9 @@ export function EVisitorsProductPage({
                 </p>
                 <AvatarCircles
                   className="pl-2"
-                  avatarUrls={activeTestimonials.slice(0, 4).map((testimonial) => testimonial.image)}
+                  avatarUrls={activeTestimonials
+                    .slice(0, 4)
+                    .map((testimonial) => testimonial.image)}
                   numPeople={Math.max(activeTestimonials.length - 4, 1)}
                   href="/san-hub?section=testimonials"
                   onAvatarClick={(index) => setSelectedTestimonial(index)}
@@ -589,7 +596,7 @@ export function EVisitorsProductPage({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="e-visitors-testimonial-title"
-                className="relative w-full max-w-xl rounded-2xl border border-white/80 bg-white p-6 text-[#0a1f44] shadow-[0_24px_80px_rgba(7,21,45,0.35)] sm:p-8"
+                className="relative w-full max-w-xl rounde-md border border-white/80 bg-white p-6 text-[#0a1f44] shadow-[0_24px_80px_rgba(7,21,45,0.35)] sm:p-8"
                 initial={{ opacity: 0, y: 12, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.97 }}
@@ -818,6 +825,7 @@ export function EVisitorsProductPage({
               </div>
               <CalendlyDialog
                 label={t.requestDemo}
+                bookingUrl={bookingUrl}
                 className="inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-bold text-[#0a1f44] transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a1f44]"
               />
             </div>
@@ -841,7 +849,6 @@ export function EVisitorsProductPage({
                 visitor operations.
               </p>
 
-
               <div className="relative mt-8 aspect-[16/9] w-full max-w-[520px] overflow-hidden rounded-xl bg-slate-100 lg:max-w-full">
                 <Image
                   src="/images/rwanda.jpeg"
@@ -852,15 +859,17 @@ export function EVisitorsProductPage({
                 />
               </div>
 
-              {activeFaqs.length > 9 &&<div className="relative mt-8 aspect-[16/9] w-full max-w-[520px] overflow-hidden rounded-xl bg-slate-100 lg:max-w-full">
-                <Image
-                  src="/images/fqa1.jpeg"
-                  alt="E-Visitors visitor journey from check-in to check-out"
-                  fill
-                  sizes="(min-width: 1024px) 520px, 100vw"
-                  className="object-cover"
-                />
-              </div>}
+              {activeFaqs.length > 9 && (
+                <div className="relative mt-8 aspect-[16/9] w-full max-w-[520px] overflow-hidden rounded-xl bg-slate-100 lg:max-w-full">
+                  <Image
+                    src="/images/fqa1.jpeg"
+                    alt="E-Visitors visitor journey from check-in to check-out"
+                    fill
+                    sizes="(min-width: 1024px) 520px, 100vw"
+                    className="object-cover"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="divide-y divide-slate-200 border-y border-slate-200">

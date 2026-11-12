@@ -10,6 +10,7 @@ const stageIcons = [BookOpen, Hammer, BadgeCheck, Network] as const;
 const stageLabels = ["Understand", "Apply", "Prove", "Keep going"] as const;
 
 export function SanHubCourseJourney({ modules }: { modules: readonly CourseModule[] }) {
+  if (modules.length === 0) return null;
   return (
     <section id="courses" className="scroll-mt-48 border-b border-slate-200 py-10">
       <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-secondary">Course series</p>
