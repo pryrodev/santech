@@ -65,6 +65,7 @@ export const drivingChangeSections: readonly DrivingChangeSection[] = [
 ];
 
 export type DrivingChangeStory = {
+  id?: number;
   slug: string;
   sectionKey: DrivingChangeMenuKey;
   category: string;
@@ -77,9 +78,9 @@ export type DrivingChangeStory = {
   imageAlt: string;
   excerpt: string;
   location: string;
-  institution?: string;
+  institution?: string | null;
   body: string[];
-  stats?: { label: string; value: string };
+  stats?: { label: string; value: string } | null;
 };
 
 export const drivingChangeStories: readonly DrivingChangeStory[] = [

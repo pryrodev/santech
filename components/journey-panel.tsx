@@ -19,14 +19,17 @@ export const JOURNEY_MILESTONES: readonly JourneyMilestone[] = [
 export function JourneyPanel({ cmsStages }: { cmsStages?: import("@/lib/strapi").JourneyStage[] }) {
   const items: readonly JourneyMilestone[] =
     cmsStages && cmsStages.length > 0
-      ? cmsStages.map((s) => ({
-          id: `${s.year}-${s.stage.toLowerCase().replace(/\s+/g, "-")}`,
-          year: s.year,
-          title: s.stage,
-          description: s.description,
-          image: "/images/summit.jpg",
-          imageAlt: `SAN TECH ${s.stage} milestone`,
-        }))
+      ? cmsStages.map((s) => {
+          const fallback = JOURNEY_MILESTONES.find((m) => m.year === s.year);
+          return {
+            id: `${s.year}-${s.stage.toLowerCase().replace(/\s+/g, "-")}`,
+            year: s.year,
+            title: s.stage,
+            description: s.description,
+            image: s.image || fallback?.image || "/images/summit.jpeg",
+            imageAlt: s.imageAlt || fallback?.imageAlt || `SAN TECH ${s.stage} milestone`,
+          };
+        })
       : JOURNEY_MILESTONES;
 
   return <StoryTimeline items={items} ariaLabel="SAN TECH journey timeline" />;

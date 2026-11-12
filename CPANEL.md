@@ -2,6 +2,16 @@
 
 This runs the existing Next.js application as a cPanel Node.js app. It keeps server-rendered pages, Strapi content, dynamic routes, and the /api/pdf endpoint working; it is not a limited static export.
 
+## Build a local upload archive
+
+On Windows, run this from the repository root:
+
+~~~powershell
+.\deploy\build-cpanel.ps1
+~~~
+
+The script builds locally and creates `deploy/santech-f-cpanel-build.zip`. It includes the complete `.next` runtime output and `public` assets, but leaves out local environment files, `node_modules`, and build caches. Upload the ZIP and extract it directly into the cPanel application root, then use cPanel's **Run NPM Install** and restart the app. The script uses `NEXT_PUBLIC_PLATFORM_URL` from the process environment, `.env.production.local`, or `.env.local`, in that order, and requires HTTPS for the production API URL.
+
 ## 1. Prepare the server
 
 In **cPanel -> Setup Node.js App**, create an application with:

@@ -24,16 +24,15 @@ export type SanHubCourseFocus = SanHubCourseCategory;
 
 /** Build the internal destination for a CMS catalog item without storing a manual URL. */
 export function getSanHubCatalogHref(item: Pick<SanHubCatalogItem, "id" | "category">): string {
+  // Guard against broken CMS entries (missing slug) so a link never becomes "/san-hub/course/null".
+  if (!item.id || item.id === "null" || item.id === "undefined") {
+    return item.category === "Courses" ? "/san-hub/courses" : "/san-hub";
+  }
+
   if (item.category === "Courses") return `/san-hub/course/${item.id}`;
 
   if (item.category === "Programs") {
-    const programRoutes: Record<string, string> = {
-      devbreak: "/san-hub/explore/build",
-      "capacity-building": "/san-hub/courses",
-      "research-development": "/san-hub/explore/research",
-      apprenticeship: "/san-hub/explore/work",
-    };
-    return programRoutes[item.id] ?? "/san-hub";
+    return `/san-hub/program/${encodeURIComponent(item.id)}`;
   }
 
   const categoryRoutes: Partial<Record<SanHubCategory, string>> = {
@@ -59,7 +58,18 @@ export type SanHubCatalogItem = {
   courseCategory?: SanHubCourseCategory;
   badge?: string;
   href: string;
+  relatedCourses?: Array<{ sortOrder: number; id: string; slug: string; title: string; summary: string | null; level: string | null; durationWeeks: number | null; status: string; catalogItem: { title: string; slug: string; imageAsset: { url: string; alternativeText: string | null } | null } | null }>;
 };
+
+/** Convert a title into a URL-safe slug, matching how slugs are used elsewhere. */
+export function slugifySanHubTitle(title: string): string {
+  return title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "") || "course";
+}
+
+/** CMS course slugs can be null for unfinished entries — fall back to a title-derived slug. */
+export function resolveSanHubCatalogSlug(item: { slug?: string | null; title: string }): string {
+  return item.slug && item.slug.trim().length > 0 ? item.slug : slugifySanHubTitle(item.title);
+}
 
 export const sanHubCatalogItems: readonly SanHubCatalogItem[] = [
   { id: "full-stack-software-engineering", category: "Courses", courseCategory: "Web development", title: "Full-Stack Software Engineering", provider: "SAN TECH / SAN HUB", description: "Build reliable web and platform experiences from user needs to deployment.", image: "/images/second-image.jpeg", format: "Cohort", duration: "16 weeks", level: "Intermediate", badge: "Featured pathway", href: "/san-hub/course/full-stack-software-engineering" },

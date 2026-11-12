@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
@@ -8,29 +8,11 @@ import { SanHubLearnExperience } from "@/components/san-hub/san-hub-learn-experi
 import { SanHubSectionMenu } from "@/components/san-hub/san-hub-section-menu";
 import { SanHubSectionReveal } from "@/components/san-hub/san-hub-section-reveal";
 import { getSanHubExploreRoute, sanHubExploreRoutes, type SanHubExploreRouteId } from "@/lib/san-hub-explore-data";
-import { getSanHubCatalogHref, sanHubCatalogItems, sanHubProgramItems, type SanHubCatalogItem } from "@/lib/san-hub-catalog-data";
-import { fetchSanHubCatalogItems } from "@/lib/strapi";
+import { getSanHubCatalogHref, resolveSanHubCatalogSlug, sanHubCatalogItems, sanHubProgramItems, type SanHubCatalogItem } from "@/lib/san-hub-catalog-data";
+import { fetchPlatformCatalog, mapPlatformCatalogItem } from "@/lib/platform-courses";
 
 export function generateStaticParams() {
   return sanHubExploreRoutes.map(({ id: route }) => ({ route }));
-}
-
-/** Map a CMS item to the local SanHubCatalogItem shape */
-function mapCmsItem(i: Awaited<ReturnType<typeof fetchSanHubCatalogItems>>[number]): SanHubCatalogItem {
-  return {
-    id: i.slug,
-    category: i.category as SanHubCatalogItem["category"],
-    courseCategory: i.courseCategory?.name as SanHubCatalogItem["courseCategory"] | undefined,
-    title: i.title,
-    provider: i.provider ?? "",
-    description: i.description,
-    image: i.image,
-    format: i.format ?? "",
-    duration: i.duration ?? "",
-    level: i.level ?? "",
-    badge: i.badge ?? undefined,
-    href: getSanHubCatalogHref({ id: i.slug, category: i.category as SanHubCatalogItem["category"] }),
-  };
 }
 
 function RouteFocus({ route }: { route: NonNullable<ReturnType<typeof getSanHubExploreRoute>> }) {
@@ -80,11 +62,11 @@ export default async function SanHubExploreRoutePage({ params }: { params: Promi
   if (!route) notFound();
 
   // Fetch all catalog items from Strapi; fall back to hardcoded if empty
-  const cmsItems = await fetchSanHubCatalogItems();
+  const platformItems = await fetchPlatformCatalog();
   const allItems: readonly SanHubCatalogItem[] =
-    cmsItems.length > 0 ? cmsItems.map(mapCmsItem) : sanHubCatalogItems;
+    platformItems.length > 0 ? platformItems.map(mapPlatformCatalogItem) : sanHubCatalogItems;
   const allPrograms: readonly SanHubCatalogItem[] =
-    cmsItems.length > 0
+    platformItems.length > 0
       ? allItems.filter((i) => i.category === "Programs")
       : sanHubProgramItems;
 
@@ -122,3 +104,4 @@ export default async function SanHubExploreRoutePage({ params }: { params: Promi
     </PublicPage>
   );
 }
+

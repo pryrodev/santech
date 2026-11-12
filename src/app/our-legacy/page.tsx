@@ -1,8 +1,7 @@
-﻿import { PublicPage } from "@/components/public-page";
-import { SharedContentBrowser, type SharedContentItem } from "@/components/shared-content-browser";
-import { StickyPageMenu } from "@/components/sticky-page-menu";
-import { BorderBeam } from "@/components/ui/border-beam";
-import { fetchRecognitions, fetchTeamMembers, fetchJourneyStages, fetchCompanyValues, fetchFocusAreas, fetchStandards, fetchLegacyContent } from "@/lib/strapi";
+import { PublicPage } from "@/components/public-page";
+import type { SharedContentItem } from "@/components/shared-content-browser";
+import { OurLegacyContent } from "@/components/our-legacy-content";
+import { fetchRecognitions, fetchTeamMembers, fetchJourneyStages, fetchCompanyValues, fetchFocusAreas, fetchStandards, fetchCertificates, fetchLegacyContent } from "@/lib/strapi";
 import { createPageMetadata } from "@/lib/seo";
 
 export function generateMetadata() {
@@ -100,51 +99,32 @@ const legacyItems: SharedContentItem[] = [
   },
 ];
 
-export default async function OurLegacyPage({ searchParams }: { searchParams: Promise<{ section?: string; view?: string }> }) {
-  const params = await searchParams;
-  const selectedSection = legacyMenu.find((item) => item.key === params.section)?.key ?? "who-we-are";
-  const leadershipView = params.view === "organization" ? "organization" : params.view === "team" ? "team" : "executive";
-  const isLeadership = selectedSection === "leadership";
-
-  const [cmsRecognitions, cmsTeamMembers, cmsJourneyStages, cmsCompanyValues, cmsFocusAreas, cmsStandards, cmsLegacyContent] = await Promise.all([
+export default async function OurLegacyPage() {
+  const [cmsRecognitions, cmsTeamMembers, cmsJourneyStages, cmsCompanyValues, cmsFocusAreas, cmsStandards, cmsCertificates, cmsLegacyContent] = await Promise.all([
     fetchRecognitions(),
     fetchTeamMembers(),
     fetchJourneyStages(),
     fetchCompanyValues(),
     fetchFocusAreas(),
     fetchStandards(),
+    fetchCertificates(),
     fetchLegacyContent(),
   ]);
 
   return (
     <PublicPage>
-      <StickyPageMenu items={legacyMenu} activeKey={selectedSection} ariaLabel="Our Legacy sections" translationKey="legacy" />
-      <section className={`border-t border-slate-200 px-6 pb-5 pt-2 sm:px-10 ${isLeadership ? "lg:px-16 lg:pb-5 lg:pt-4" : "min-[1020px]:px-12 min-[1020px]:pb-3 min-[1020px]:pt-2"}`}>
-        <div className={`relative mx-auto max-w-7xl overflow-hidden rounded-2xl bg-white px-5 py-8 sm:px-8 sm:py-10 ${isLeadership ? "lg:px-10 lg:py-12" : "min-[1020px]:px-8 min-[1020px]:py-6"}`}>
-          <div className="relative z-10">
-            <SharedContentBrowser items={legacyItems} initialItemId={selectedSection} initialLeadershipView={leadershipView} syncUrl cmsRecognitions={cmsRecognitions} cmsTeamMembers={cmsTeamMembers} cmsJourneyStages={cmsJourneyStages} cmsCompanyValues={cmsCompanyValues} cmsFocusAreas={cmsFocusAreas} cmsStandards={cmsStandards} cmsLegacyContent={cmsLegacyContent} />
-          </div>
-          <BorderBeam
-            size={120}
-            duration={8}
-            initialOffset={12}
-            borderWidth={1.5}
-            colorFrom="#09bce7"
-            colorTo="#0a1f44"
-            className="from-transparent via-brand-cyan to-transparent opacity-75"
-          />
-          <BorderBeam
-            size={120}
-            duration={8}
-            delay={4}
-            initialOffset={62}
-            borderWidth={1}
-            colorFrom="#0a1f44"
-            colorTo="#4d8dff"
-            className="from-transparent via-[#4d8dff] to-transparent opacity-60"
-          />
-        </div>
-      </section>
+      <OurLegacyContent
+        legacyMenu={legacyMenu}
+        legacyItems={legacyItems}
+        cmsRecognitions={cmsRecognitions}
+        cmsTeamMembers={cmsTeamMembers}
+        cmsJourneyStages={cmsJourneyStages}
+        cmsCompanyValues={cmsCompanyValues}
+        cmsFocusAreas={cmsFocusAreas}
+        cmsStandards={cmsStandards}
+        cmsCertificates={cmsCertificates}
+        cmsLegacyContent={cmsLegacyContent}
+      />
     </PublicPage>
   );
 }

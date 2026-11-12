@@ -1,7 +1,7 @@
-import { SantechHomeStage } from "@/components/santech-home-stage";
+﻿import { SantechHomeStage } from "@/components/santech-home-stage";
 import { SiteHeader } from "@/components/site-header";
 import { CircuitBackground } from "@/components/ui/circuit-background";
-import { fetchSiteStats, fetchPartnerBrands, fetchHomeStorySlides } from "@/lib/strapi";
+import { fetchSiteStats, fetchPartnerBrands, fetchHomeStorySlides, fetchSiteSettings } from "@/lib/strapi";
 import { createPageMetadata } from "@/lib/seo";
 
 export function generateMetadata() {
@@ -24,10 +24,11 @@ const FALLBACK_STATS: [number, string, string][] = [
 ];
 
 export default async function HomePage() {
-  const [cmsStats, cmsPartners, cmsSlides] = await Promise.all([
+  const [cmsStats, cmsPartners, cmsSlides, siteSettings] = await Promise.all([
     fetchSiteStats(),
     fetchPartnerBrands(),
     fetchHomeStorySlides(),
+      fetchSiteSettings(),
   ]);
 
   // Map CMS stats to the [value, suffix, label] tuple the component expects
@@ -72,7 +73,11 @@ export default async function HomePage() {
   return (
     <CircuitBackground as="main" className="home-viewport min-h-svh overflow-x-hidden pt-[112px] text-slate-900">
       <SiteHeader landing />
-      <SantechHomeStage stats={stats} partners={partners} slides={slides} />
+      <SantechHomeStage stats={stats} partners={partners} slides={slides} videoSrc={siteSettings?.homepageVideo} videoPoster={siteSettings?.homepageVideoPoster} />
     </CircuitBackground>
   );
 }
+
+
+
+

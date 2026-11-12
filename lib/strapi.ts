@@ -10,6 +10,7 @@ import { drivingChangeSections, type DrivingChangeMenuKey, type DrivingChangeSec
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
+const PLATFORM_URL = process.env.NEXT_PUBLIC_PLATFORM_URL?.replace(/\/$/, "");
 const STRAPI_URL =
   process.env.NEXT_PUBLIC_STRAPI_URL?.replace(/\/$/, "") ?? "http://localhost:1337";
 const IS_LOCAL_STRAPI = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(STRAPI_URL);
@@ -17,6 +18,9 @@ const SKIP_UNAVAILABLE_LOCAL_STRAPI =
   process.env.NODE_ENV === "production" && IS_LOCAL_STRAPI && process.env.STRAPI_ALLOW_LOCAL_FETCH !== "true";
 const LOG_STRAPI_FAILURES =
   process.env.STRAPI_LOG_FAILURES === "true" || !IS_LOCAL_STRAPI;
+// The platform is now the single source of truth. Strapi fallback is opt-in
+// only for local recovery while the migration is being verified.
+const ALLOW_STRAPI_FALLBACK = process.env.NEXT_PUBLIC_USE_STRAPI_FALLBACK === "true";
 
 const STRAPI_TIMEOUT_MS = Number(process.env.STRAPI_TIMEOUT_MS || 3000);
 
@@ -26,11 +30,24 @@ const STRAPI_TIMEOUT_MS = Number(process.env.STRAPI_TIMEOUT_MS || 3000);
 // so the page can immediately render with hardcoded fallback data.
 
 async function safeFetch(url: string, init?: RequestInit): Promise<Response | null> {
+  if (!ALLOW_STRAPI_FALLBACK) return null;
   if (SKIP_UNAVAILABLE_LOCAL_STRAPI) return null;
 
   try {
     const signal = init?.signal ?? AbortSignal.timeout(STRAPI_TIMEOUT_MS);
-    return await fetch(url, { ...init, signal });
+    const res = await fetch(url, { ...init, signal });
+    if (!res.ok) {
+      return res;
+    }
+    const data = await res.json();
+    return {
+      ok: true,
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+      json: async () => data,
+      text: async () => JSON.stringify(data),
+    } as unknown as Response;
   } catch {
     if (LOG_STRAPI_FAILURES) {
       console.warn(`[strapi] fetch failed (Strapi unreachable or timed out): ${url}`);
@@ -39,6 +56,31 @@ async function safeFetch(url: string, init?: RequestInit): Promise<Response | nu
   }
 }
 
+async function fetchPlatformSingleton<T>(path: string): Promise<T | null> {
+  if (!PLATFORM_URL) return null;
+  try {
+    const response = await fetch(`${PLATFORM_URL}${path}`, { next: { revalidate: 3600 } });
+    if (!response.ok) return null;
+    const json = (await response.json()) as { data?: T | null };
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPlatformContent(contentType: string, params: Record<string, string> = {}): Promise<unknown[] | null> {
+  if (!PLATFORM_URL) return null;
+  const query = new URLSearchParams(params);
+  const url = `${PLATFORM_URL}/api/public/content/${encodeURIComponent(contentType)}${query.size ? `?${query}` : ""}`;
+  try {
+    const response = await fetch(url, { next: { revalidate: 60 } });
+    if (!response.ok) return null;
+    const json = (await response.json()) as { data?: Array<{ payload?: unknown }> };
+    return (json.data ?? []).map((entry) => entry.payload).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
 function reportStrapiResponseFailure(operation: string, response: Response | null) {
   if (LOG_STRAPI_FAILURES && response && !response.ok) {
     console.warn(`[strapi] ${operation} failed: ${response.status} ${response.statusText}`);
@@ -188,6 +230,12 @@ export async function fetchTechPulseArticles(
 ): Promise<CmsArticle[]> {
   const { category, page = 1, pageSize = 100 } = options;
 
+  const platformItems = await fetchPlatformContent("tech-pulse-article", { limit: String(pageSize) });
+  if (platformItems) {
+    const items = platformItems as StrapiArticleItem[];
+    return items.filter((item) => !category || item.category === category).map(normalise);
+  }
+
   const params = new URLSearchParams();
   params.set("pagination[page]", String(page));
   params.set("pagination[pageSize]", String(pageSize));
@@ -199,7 +247,7 @@ export async function fetchTechPulseArticles(
     params.set("filters[category][$eq]", category);
   }
 
-  const url = `${STRAPI_URL}/api/tech-pulse-articles?${params.toString()}`;
+  const url = "";
 
   const res = await safeFetch(url, {
     next: { revalidate: 60 },
@@ -221,12 +269,18 @@ export async function fetchTechPulseArticles(
 export async function fetchTechPulseArticleBySlug(
   slug: string
 ): Promise<CmsArticle | null> {
+  const platformItems = await fetchPlatformContent("tech-pulse-article", { slug, limit: "1" });
+  if (platformItems) {
+    const item = platformItems[0] as StrapiArticleItem | undefined;
+    return item ? normalise(item) : null;
+  }
+
   const params = new URLSearchParams();
   params.set("filters[slug][$eq]", slug);
   params.set("populate[coverImage][fields][0]", "url");
   params.set("populate[coverImage][fields][1]", "alternativeText");
 
-  const url = `${STRAPI_URL}/api/tech-pulse-articles?${params.toString()}`;
+  const url = "";
 
   const res = await safeFetch(url, {
     next: { revalidate: 60 },
@@ -246,11 +300,14 @@ export async function fetchTechPulseArticleBySlug(
  * Returns all slugs for generateStaticParams in the [slug] page.
  */
 export async function fetchAllTechPulseSlugs(): Promise<string[]> {
+  const platformItems = await fetchPlatformContent("tech-pulse-article", { limit: "500" });
+  if (platformItems) return (platformItems as StrapiArticleItem[]).map((item) => item.slug);
+
   const params = new URLSearchParams();
   params.set("fields[0]", "slug");
   params.set("pagination[pageSize]", "500");
 
-  const url = `${STRAPI_URL}/api/tech-pulse-articles?${params.toString()}`;
+  const url = "";
 
   const res = await safeFetch(url, { next: { revalidate: 3600 } });
   if (!res || !res.ok) return [];
@@ -273,7 +330,9 @@ export type SiteStat = {
 };
 
 export async function fetchSiteStats(): Promise<SiteStat[]> {
-  const url = `${STRAPI_URL}/api/site-stats?sort[0]=sortOrder:asc&pagination[pageSize]=20`;
+  const platformItems = await fetchPlatformContent("site-stat", { limit: "20" });
+  if (platformItems) return platformItems as SiteStat[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchSiteStats", res);
@@ -296,7 +355,9 @@ export type PartnerBrand = {
 };
 
 export async function fetchPartnerBrands(): Promise<PartnerBrand[]> {
-  const url = `${STRAPI_URL}/api/partner-brands?sort[0]=sortOrder:asc&populate[logo][fields][0]=url&pagination[pageSize]=50`;
+  const platformItems = await fetchPlatformContent("partner-brand", { limit: "100" });
+  if (platformItems) return platformItems as PartnerBrand[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchPartnerBrands", res);
@@ -327,7 +388,7 @@ export async function fetchPartnerBrands(): Promise<PartnerBrand[]> {
 // ─── Driving Change Stories ──────────────────────────────────────────────────
 
 export type DrivingChangeStory = {
-  id: number;
+  id?: number;
   slug: string;
   sectionKey: "impact" | "career";
   category: string;
@@ -340,14 +401,43 @@ export type DrivingChangeStory = {
   imageAlt: string;
   excerpt: string;
   location: string;
-  institution: string | null;
+  institution?: string | null;
   body: string[];
-  stats: { label: string; value: string } | null;
+  stats?: { label: string; value: string } | null;
 };
 
+function normalisePlatformDrivingChange(item: Record<string, unknown>): DrivingChangeStory {
+  const cover = item.coverImage as { url?: string; alternativeText?: string | null } | null | undefined;
+  const publishedDate = String(item.publishedDate ?? item.publishedAt ?? item.createdAt ?? "").slice(0, 10);
+  const statLabel = typeof item.statLabel === "string" ? item.statLabel : null;
+  const statValue = typeof item.statValue === "string" ? item.statValue : null;
+  return {
+    id: typeof item.id === "number" ? item.id : undefined,
+    slug: String(item.slug ?? ""),
+    sectionKey: item.sectionKey === "career" ? "career" : "impact",
+    category: String(item.category ?? ""),
+    categoryLabel: String(item.categoryLabel ?? item.category ?? ""),
+    title: String(item.title ?? ""),
+    date: formatDate(publishedDate),
+    publishedAt: publishedDate,
+    readingTime: typeof item.readingTime === "string" ? item.readingTime : "3 min read",
+    image: cover?.url ? resolveMediaUrl(cover.url) : "",
+    imageAlt: typeof item.coverImageAlt === "string" ? item.coverImageAlt : cover?.alternativeText ?? String(item.title ?? ""),
+    excerpt: String(item.excerpt ?? ""),
+    location: String(item.location ?? ""),
+    institution: typeof item.institution === "string" ? item.institution : null,
+    body: blocksToText((item.body as BlockNode[] | null) ?? null),
+    stats: statLabel && statValue ? { label: statLabel, value: statValue } : null,
+  };
+}
 export async function fetchDrivingChangeStories(
   sectionKey?: "impact" | "career"
 ): Promise<DrivingChangeStory[]> {
+  const platformItems = await fetchPlatformContent("driving-change-story", { limit: "100" });
+  if (platformItems) {
+    return (platformItems as Array<Record<string, unknown>>).filter((item) => !sectionKey || item.sectionKey === sectionKey).map(normalisePlatformDrivingChange);
+  }
+
   const params = new URLSearchParams();
   params.set("sort[0]", "publishedDate:desc");
   params.set("populate[coverImage][fields][0]", "url");
@@ -355,7 +445,7 @@ export async function fetchDrivingChangeStories(
   params.set("pagination[pageSize]", "100");
   if (sectionKey) params.set("filters[sectionKey][$eq]", sectionKey);
 
-  const url = `${STRAPI_URL}/api/driving-change-stories?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 60 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchDrivingChangeStories", res);
@@ -375,7 +465,7 @@ export async function fetchDrivingChangeStories(
       coverImage: StrapiMedia | null;
       coverImageAlt: string | null;
       location: string;
-      institution: string | null;
+      institution?: string | null;
       statLabel: string | null;
       statValue: string | null;
       readingTime: string | null;
@@ -409,12 +499,19 @@ export async function fetchDrivingChangeStories(
 export async function fetchDrivingChangeStoryBySlug(
   slug: string
 ): Promise<DrivingChangeStory | null> {
+  const platformItems = await fetchPlatformContent("driving-change-story", { slug, limit: "1" });
+  if (platformItems) {
+    const item = platformItems[0] as Record<string, unknown> | undefined;
+    return item ? normalisePlatformDrivingChange(item) : null;
+  }
+
+
   const params = new URLSearchParams();
   params.set("filters[slug][$eq]", slug);
   params.set("populate[coverImage][fields][0]", "url");
   params.set("populate[coverImage][fields][1]", "alternativeText");
 
-  const url = `${STRAPI_URL}/api/driving-change-stories?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 60 } });
   if (!res || !res.ok) return null;
 
@@ -431,7 +528,7 @@ export async function fetchDrivingChangeStoryBySlug(
       coverImage: StrapiMedia | null;
       coverImageAlt: string | null;
       location: string;
-      institution: string | null;
+      institution?: string | null;
       statLabel: string | null;
       statValue: string | null;
       readingTime: string | null;
@@ -497,7 +594,8 @@ function normalizeCourseRelations(items: StrapiCourseRelation[] | null | undefin
 export type SanHubCatalogItem = {
   id: number;
   documentId: string;
-  slug: string;
+  /** Strapi returns null while a course entry is still being filled in. */
+  slug: string | null;
   category: string;
   courseCategory: { name: string; slug: string } | null;
   title: string;
@@ -529,7 +627,7 @@ export async function fetchSanHubCatalogItems(
   params.set("pagination[pageSize]", "100");
   if (category) params.set("filters[category][$eq]", category);
 
-  const url = `${STRAPI_URL}/api/san-hub-catalog-items?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, options.fresh ? { cache: "no-store" } : { next: { revalidate: 60 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchSanHubCatalogItems", res);
@@ -540,7 +638,7 @@ export async function fetchSanHubCatalogItems(
     data: Array<{
       id: number;
       documentId: string;
-      slug: string;
+      slug: string | null;
       category: string;
       courseCategory: { name: string; slug: string } | null;
       title: string;
@@ -609,17 +707,8 @@ export type DrivingChangeTopic = {
 };
 
 export async function fetchDrivingChangeTopics(): Promise<DrivingChangeTopic[]> {
-  const url = `${STRAPI_URL}/api/driving-change-topics?sort[0]=sectionKey:asc&sort[1]=sortOrder:asc&pagination[pageSize]=50`;
-  const res = await safeFetch(url, { next: { revalidate: 300 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchDrivingChangeTopics", res);
-    return [];
-  }
-
-  const json: { data: Array<{ id: number; topicId: string; sectionKey: DrivingChangeMenuKey; label: string; subtitle: string; sortOrder: number }> } = await res.json();
-  return json.data ?? [];
+  return (await fetchPlatformContent("driving-change-topic", { limit: "100" }) ?? []) as DrivingChangeTopic[];
 }
-
 export function mapDrivingChangeTopicsToSections(topics: DrivingChangeTopic[]): DrivingChangeSection[] {
   return (["impact", "career"] as const).map((sectionKey) => ({
     key: sectionKey,
@@ -659,47 +748,8 @@ export type SanHubBook = {
 };
 
 export async function fetchSanHubBooks(): Promise<SanHubBook[]> {
-  const url = `${STRAPI_URL}/api/san-hub-books?sort[0]=sortOrder:asc&populate[category]=*&populate[coverImage][fields][0]=url&populate[file][fields][0]=url&pagination[pageSize]=100`;
-  const res = await safeFetch(url, { next: { revalidate: 300 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchSanHubBooks", res);
-    return [];
-  }
-
-  const json: {
-    data: Array<{
-      id: number;
-      bookId: string;
-      title: string;
-      description: string;
-      category: { name: string } | null;
-      coverImage: { url: string } | null;
-      file: { url: string } | null;
-      readerUrl: string | null;
-      coverTitle: string | null;
-      coverSubtitle: string | null;
-      accent: string | null;
-      coverInk: string | null;
-      pageLabel: string | null;
-    }>;
-  } = await res.json();
-
-  return (json.data ?? []).map((item) => ({
-    id: item.id,
-    bookId: item.bookId,
-    title: item.title,
-    description: item.description,
-    category: item.category?.name ?? "SAN HUB collection",
-    coverImage: item.coverImage?.url ? resolveMediaUrl(item.coverImage.url) : "",
-    readerUrl: item.readerUrl || (item.file?.url ? resolveMediaUrl(item.file.url) : null),
-    coverTitle: item.coverTitle,
-    coverSubtitle: item.coverSubtitle,
-    accent: item.accent,
-    coverInk: item.coverInk,
-    pageLabel: item.pageLabel,
-  }));
+  return (await fetchPlatformContent("san-hub-book", { limit: "100" }) ?? []) as SanHubBook[];
 }
-
 export type Opportunity = {
   id: number;
   title: string;
@@ -712,7 +762,9 @@ export type Opportunity = {
 };
 
 export async function fetchOpportunities(): Promise<Opportunity[]> {
-  const url = `${STRAPI_URL}/api/opportunities?sort[0]=sortOrder:asc&populate[coverImage][fields][0]=url&pagination[pageSize]=50`;
+  const platformItems = await fetchPlatformContent("opportunity", { limit: "100" });
+  if (platformItems) return platformItems as Opportunity[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 60 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchOpportunities", res);
@@ -763,41 +815,11 @@ export type LegacyContent = {
 };
 
 export async function fetchLegacyContent(): Promise<LegacyContent | null> {
-  const url = `${STRAPI_URL}/api/legacy-page`;
-  const res = await safeFetch(url, { next: { revalidate: 300 } });
-  if (!res || !res.ok) {
-    if (res) reportStrapiResponseFailure("fetchLegacyContent", res);
-    return null;
-  }
-
-  const json: { data: Record<string, unknown> | null } = await res.json();
-  const item = json.data;
+  const item = await fetchPlatformSingleton<Record<string, unknown>>("/api/public/legacy-content");
   if (!item) return null;
-
-  const records = (value: unknown): Array<{ label: string; value: string }> =>
-    Array.isArray(value)
-      ? value.filter((entry): entry is { label: string; value: string } => Boolean(entry && typeof entry === "object" && "label" in entry && "value" in entry && typeof entry.label === "string" && typeof entry.value === "string"))
-      : [];
-  const stats = (value: unknown): Array<{ value: string; label: string; description: string }> =>
-    Array.isArray(value)
-      ? value.filter((entry): entry is { value: string; label: string; description: string } => Boolean(entry && typeof entry === "object" && "value" in entry && "label" in entry && "description" in entry && typeof entry.value === "string" && typeof entry.label === "string" && typeof entry.description === "string"))
-      : [];
-
-  return {
-    whoWeAreBody: typeof item.whoWeAreBody === "string" ? item.whoWeAreBody : null,
-    whoWeAreSecondaryBody: typeof item.whoWeAreSecondaryBody === "string" ? item.whoWeAreSecondaryBody : null,
-    identityFacts: records(item.identityFacts),
-    missionTitle: typeof item.missionTitle === "string" ? item.missionTitle : null,
-    missionTagline: typeof item.missionTagline === "string" ? item.missionTagline : null,
-    missionDescription: typeof item.missionDescription === "string" ? item.missionDescription : null,
-    visionTitle: typeof item.visionTitle === "string" ? item.visionTitle : null,
-    visionTagline: typeof item.visionTagline === "string" ? item.visionTagline : null,
-    visionDescription: typeof item.visionDescription === "string" ? item.visionDescription : null,
-    profileTitle: typeof item.profileTitle === "string" ? item.profileTitle : null,
-    profileDescription: typeof item.profileDescription === "string" ? item.profileDescription : null,
-    profileFacts: records(item.profileFacts),
-    impactStats: stats(item.impactStats),
-  };
+  const records = (value: unknown): Array<{ label: string; value: string }> => Array.isArray(value) ? value.filter((entry): entry is { label: string; value: string } => Boolean(entry && typeof entry === "object" && "label" in entry && "value" in entry && typeof entry.label === "string" && typeof entry.value === "string")) : [];
+  const stats = (value: unknown): Array<{ value: string; label: string; description: string }> => Array.isArray(value) ? value.filter((entry): entry is { value: string; label: string; description: string } => Boolean(entry && typeof entry === "object" && "value" in entry && "label" in entry && "description" in entry && typeof entry.value === "string" && typeof entry.label === "string" && typeof entry.description === "string")) : [];
+  return { whoWeAreBody: typeof item.whoWeAreBody === "string" ? item.whoWeAreBody : null, whoWeAreSecondaryBody: typeof item.whoWeAreSecondaryBody === "string" ? item.whoWeAreSecondaryBody : null, identityFacts: records(item.identityFacts), missionTitle: typeof item.missionTitle === "string" ? item.missionTitle : null, missionTagline: typeof item.missionTagline === "string" ? item.missionTagline : null, missionDescription: typeof item.missionDescription === "string" ? item.missionDescription : null, visionTitle: typeof item.visionTitle === "string" ? item.visionTitle : null, visionTagline: typeof item.visionTagline === "string" ? item.visionTagline : null, visionDescription: typeof item.visionDescription === "string" ? item.visionDescription : null, profileTitle: typeof item.profileTitle === "string" ? item.profileTitle : null, profileDescription: typeof item.profileDescription === "string" ? item.profileDescription : null, profileFacts: records(item.profileFacts), impactStats: stats(item.impactStats) };
 }
 
 export type Recognition = {
@@ -811,7 +833,9 @@ export type Recognition = {
 };
 
 export async function fetchRecognitions(): Promise<Recognition[]> {
-  const url = `${STRAPI_URL}/api/recognitions?sort[0]=year:desc&populate[image][fields][0]=url&pagination[pageSize]=50`;
+  const platformItems = await fetchPlatformContent("recognition", { limit: "100" });
+  if (platformItems) return platformItems as Recognition[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchRecognitions", res); return []; }
@@ -853,7 +877,9 @@ export type TeamMember = {
 };
 
 export async function fetchTeamMembers(): Promise<TeamMember[]> {
-  const url = `${STRAPI_URL}/api/team-members?sort[0]=sortOrder:asc&populate[photo][fields][0]=url&pagination[pageSize]=100`;
+  const platformItems = await fetchPlatformContent("team-member", { limit: "100" });
+  if (platformItems) return platformItems as TeamMember[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchTeamMembers", res); return []; }
@@ -899,10 +925,12 @@ export type Testimonial = {
 };
 
 export async function fetchTestimonials(context?: Testimonial["context"], courseId?: string): Promise<Testimonial[]> {
+  const platformItems = await fetchPlatformContent("testimonial", { limit: "100" });
+  if (platformItems) return (platformItems as Testimonial[]).filter((item) => (!context || item.context === context) && (!courseId || item.courseId === courseId));
   const params = new URLSearchParams("sort[0]=sortOrder:asc&populate[avatar][fields][0]=url&pagination[pageSize]=50");
   if (context) params.set("filters[context][$eq]", context);
   if (courseId) params.set("filters[courseId][$eq]", courseId);
-  const url = `${STRAPI_URL}/api/testimonials?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) {
     reportStrapiResponseFailure("fetchTestimonials", res);
@@ -952,38 +980,8 @@ export type TraineeAward = {
 };
 
 export async function fetchTraineeAwards(): Promise<TraineeAward[]> {
-  const url = `${STRAPI_URL}/api/trainee-awards?sort[0]=sortOrder:asc&populate[image][fields][0]=url&pagination[pageSize]=50`;
-  const res = await safeFetch(url, { next: { revalidate: 300 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchTraineeAwards", res);
-    return [];
-  }
-
-  const json: {
-    data: Array<{
-      id: number;
-      name: string;
-      year: string;
-      title: string;
-      description: string;
-      image: { url: string } | null;
-      category: string | null;
-      featured: boolean;
-    }>;
-  } = await res.json();
-
-  return (json.data ?? []).map((item) => ({
-    id: item.id,
-    name: item.name,
-    year: item.year,
-    title: item.title,
-    description: item.description,
-    image: item.image?.url ? resolveMediaUrl(item.image.url) : "",
-    category: item.category,
-    featured: item.featured,
-  }));
+  return (await fetchPlatformContent("trainee-award", { limit: "100" }) ?? []) as TraineeAward[];
 }
-
 export type ContactInfo = {
   phone1: string | null;
   phone2: string | null;
@@ -998,15 +996,7 @@ export type ContactInfo = {
 };
 
 export async function fetchContactInfo(): Promise<ContactInfo | null> {
-  const url = `${STRAPI_URL}/api/contact-info`;
-  const res = await safeFetch(url, { next: { revalidate: 3600 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchContactInfo", res);
-    return null;
-  }
-
-  const json: { data: ContactInfo | null } = await res!.json();
-  return json.data;
+  return fetchPlatformSingleton<ContactInfo>("/api/public/contact-info");
 }
 
 // ─── Global Site Settings (Single Type) ──────────────────────────────────────
@@ -1038,6 +1028,7 @@ export type SiteSettings = {
   calendlyUrl: string | null;
   logo: string | null;
   favicon: string | null;
+  eVisitorsVideo: string | null;
   homepageVideo: string | null;
   homepageVideoPoster: string | null;
   eVisitorsVideoPoster: string | null;
@@ -1056,6 +1047,7 @@ type SiteSettingsResponse = {
     calendlyUrl?: string | null;
     logo?: StrapiMedia | null;
     favicon?: StrapiMedia | null;
+    eVisitorsVideo?: StrapiMedia | null;
     homepageVideo?: StrapiMedia | null;
     homepageVideoPoster?: StrapiMedia | null;
     eVisitorsVideoPoster?: StrapiMedia | null;
@@ -1073,56 +1065,35 @@ type SiteSettingsResponse = {
 };
 
 export async function fetchSiteSettings(): Promise<SiteSettings | null> {
-  const params = new URLSearchParams();
-  params.set("populate[logo][fields][0]", "url");
-  params.set("populate[favicon][fields][0]", "url");
-  params.set("populate[homepageVideo][fields][0]", "url");
-  params.set("populate[homepageVideoPoster][fields][0]", "url");
-  params.set("populate[eVisitorsVideoPoster][fields][0]", "url");
-  params.set("populate[companyProfilePdf][fields][0]", "url");
-  params.set("populate[seo][populate][shareImage][fields][0]", "url");
-  params.set("populate[socialLinks]", "*");
-
-  const url = `${STRAPI_URL}/api/site-setting?${params.toString()}`;
-  const res = await safeFetch(url, { next: { revalidate: 3600 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchSiteSettings", res);
+  if (!PLATFORM_URL) return null;
+  try {
+    const response = await fetch(`${PLATFORM_URL}/api/public/site-settings`, { next: { revalidate: 60 } });
+    if (!response.ok) return null;
+    const json = await response.json() as { data?: Record<string, unknown> | null };
+    const item = json.data;
+    if (!item) return null;
+    const mediaUrl = (value: unknown) => typeof value === "string" && value.trim()
+      ? value.trim()
+      : value && typeof value === "object" && typeof (value as { url?: unknown }).url === "string"
+        ? (value as { url: string }).url
+        : null;
+    const seo = item.seo && typeof item.seo === "object" ? item.seo as Record<string, unknown> : null;
+    return {
+      siteName: typeof item.siteName === "string" ? item.siteName : "SAN TECH",
+      siteTitle: typeof item.siteTitle === "string" ? item.siteTitle : "SAN TECH | Technology. Innovation. Impact.",
+      siteDescription: typeof item.siteDescription === "string" ? item.siteDescription : null,
+      defaultLanguage: item.defaultLanguage === "rw" ? "rw" : "en",
+      supportedLanguages: Array.isArray(item.supportedLanguages) ? item.supportedLanguages.filter((value): value is string => typeof value === "string") : ["en", "rw"],
+      calendlyUrl: typeof item.calendlyUrl === "string" ? item.calendlyUrl : null,
+      logo: mediaUrl(item.logo), favicon: mediaUrl(item.favicon), eVisitorsVideo: mediaUrl(item.eVisitorsVideo), homepageVideo: mediaUrl(item.homepageVideo),
+      homepageVideoPoster: mediaUrl(item.homepageVideoPoster), eVisitorsVideoPoster: mediaUrl(item.eVisitorsVideoPoster),
+      companyProfilePdf: mediaUrl(item.companyProfilePdf), socialLinks: Array.isArray(item.socialLinks) ? item.socialLinks as SiteSocialLink[] : [],
+      seo: seo ? { title: typeof seo.title === "string" ? seo.title : null, description: typeof seo.description === "string" ? seo.description : null, keywords: typeof seo.keywords === "string" ? seo.keywords : null, canonicalUrl: typeof seo.canonicalUrl === "string" ? seo.canonicalUrl : null, shareImage: mediaUrl(seo.shareImage), noIndex: seo.noIndex === true } : null,
+    };
+  } catch {
     return null;
   }
-
-  const json: SiteSettingsResponse = await res.json();
-  const item = json.data;
-  if (!item) return null;
-
-  return {
-    siteName: item.siteName ?? "SAN TECH",
-    siteTitle: item.siteTitle ?? "SAN TECH | Technology. Innovation. Impact.",
-    siteDescription: item.siteDescription ?? null,
-    defaultLanguage: item.defaultLanguage ?? "en",
-    supportedLanguages: Array.isArray(item.supportedLanguages) && item.supportedLanguages.length
-      ? item.supportedLanguages
-      : ["en", "rw"],
-    calendlyUrl: item.calendlyUrl ?? null,
-    logo: item.logo?.url ? resolveMediaUrl(item.logo.url) : null,
-    favicon: item.favicon?.url ? resolveMediaUrl(item.favicon.url) : null,
-    homepageVideo: item.homepageVideo?.url ? resolveMediaUrl(item.homepageVideo.url) : null,
-    homepageVideoPoster: item.homepageVideoPoster?.url ? resolveMediaUrl(item.homepageVideoPoster.url) : null,
-    eVisitorsVideoPoster: item.eVisitorsVideoPoster?.url ? resolveMediaUrl(item.eVisitorsVideoPoster.url) : null,
-    companyProfilePdf: item.companyProfilePdf?.url ? resolveMediaUrl(item.companyProfilePdf.url) : null,
-    socialLinks: (item.socialLinks ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
-    seo: item.seo
-      ? {
-          title: item.seo.title ?? null,
-          description: item.seo.description ?? null,
-          keywords: item.seo.keywords ?? null,
-          canonicalUrl: item.seo.canonicalUrl ?? null,
-          shareImage: item.seo.shareImage?.url ? resolveMediaUrl(item.seo.shareImage.url) : null,
-          noIndex: item.seo.noIndex ?? false,
-        }
-      : null,
-  };
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // REMAINING CONTENT COLLECTIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1143,7 +1114,9 @@ export type EVisitorsFeature = {
 };
 
 export async function fetchEVisitorsFeatures(): Promise<EVisitorsFeature[]> {
-  const url = `${STRAPI_URL}/api/e-visitors-features?sort[0]=sortOrder:asc&populate[screen][fields][0]=url&pagination[pageSize]=20`;
+  const platformItems = await fetchPlatformContent("e-visitors-feature", { limit: "100" });
+  if (platformItems) return platformItems as EVisitorsFeature[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchEVisitorsFeatures", res); return []; }
   const json: { data: Array<{ id: number; number: string; label: string; title: string; description: string; panel: string | null; displayStatus: string | null; iconName: string; screen: { url: string } | null; details: string[] | null }> } = await res!.json();
@@ -1172,11 +1145,13 @@ export type ProductMilestone = {
 };
 
 export async function fetchProductMilestones(product?: string): Promise<ProductMilestone[]> {
+  const platformItems = await fetchPlatformContent("product-milestone", { limit: "100" });
+  if (platformItems) return (platformItems as ProductMilestone[]).filter((item) => !product || item.product === product);
   const params = new URLSearchParams();
   params.set("sort[0]", "sortOrder:asc");
   params.set("pagination[pageSize]", "50");
   if (product) params.set("filters[product][$eq]", product);
-  const url = `${STRAPI_URL}/api/product-milestones?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchProductMilestones", res); return []; }
   const json: { data: Array<{ id: number; year: string; title: string; description: string; product: string }> } = await res!.json();
@@ -1193,11 +1168,15 @@ export type FaqItem = {
 };
 
 export async function fetchFaqItems(product?: string): Promise<FaqItem[]> {
+  const platformItems = await fetchPlatformContent("faq-item", { limit: "50" });
+  if (platformItems) {
+    return (platformItems as FaqItem[]).filter((item) => !product || item.product === product);
+  }
   const params = new URLSearchParams();
   params.set("sort[0]", "sortOrder:asc");
   params.set("pagination[pageSize]", "50");
   if (product) params.set("filters[product][$eq]", product);
-  const url = `${STRAPI_URL}/api/faq-items?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchFaqItems", res); return []; }
   const json: { data: Array<{ id: number; question: string; answer: string; product: string }> } = await res!.json();
@@ -1211,15 +1190,36 @@ export type JourneyStage = {
   year: string;
   stage: string;
   description: string;
+  image?: string;
+  imageAlt?: string | null;
 };
 
 export async function fetchJourneyStages(): Promise<JourneyStage[]> {
-  const url = `${STRAPI_URL}/api/journey-stages?sort[0]=sortOrder:asc&pagination[pageSize]=50`;
+  const platformItems = await fetchPlatformContent("journey-stage", { limit: "100" });
+  if (platformItems) return platformItems as JourneyStage[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchJourneyStages", res); return []; }
-  const json: { data: Array<{ id: number; year: string; stage: string; description: string }> } = await res!.json();
-  return json.data ?? [];
+  const json: {
+    data: Array<{
+      id: number;
+      year: string;
+      stage: string;
+      description: string;
+      image: { url: string } | null;
+      imageAlt: string | null;
+    }>;
+  } = await res!.json();
+
+  return (json.data ?? []).map((item) => ({
+    id: item.id,
+    year: item.year,
+    stage: item.stage,
+    description: item.description,
+    image: item.image?.url ? resolveMediaUrl(item.image.url) : "",
+    imageAlt: item.imageAlt,
+  }));
 }
 
 // ─── Company Values ───────────────────────────────────────────────────────────
@@ -1231,7 +1231,9 @@ export type CompanyValue = {
 };
 
 export async function fetchCompanyValues(): Promise<CompanyValue[]> {
-  const url = `${STRAPI_URL}/api/company-values?sort[0]=sortOrder:asc&pagination[pageSize]=20`;
+  const platformItems = await fetchPlatformContent("company-value", { limit: "20" });
+  if (platformItems) return platformItems as CompanyValue[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchCompanyValues", res); return []; }
@@ -1249,7 +1251,9 @@ export type FocusArea = {
 };
 
 export async function fetchFocusAreas(): Promise<FocusArea[]> {
-  const url = `${STRAPI_URL}/api/focus-areas?sort[0]=sortOrder:asc&pagination[pageSize]=20`;
+  const platformItems = await fetchPlatformContent("focus-area", { limit: "100" });
+  if (platformItems) return platformItems as FocusArea[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchFocusAreas", res); return []; }
@@ -1277,7 +1281,9 @@ export type HomeStorySlide = {
 };
 
 export async function fetchHomeStorySlides(): Promise<HomeStorySlide[]> {
-  const url = `${STRAPI_URL}/api/home-story-slides?sort[0]=sortOrder:asc&pagination[pageSize]=20`;
+  const platformItems = await fetchPlatformContent("home-story-slide", { limit: "100" });
+  if (platformItems) return platformItems as HomeStorySlide[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchHomeStorySlides", res); return []; }
   const json: {
@@ -1323,6 +1329,8 @@ export type InnovationProduct = {
 };
 
 export async function fetchInnovationProducts(): Promise<InnovationProduct[]> {
+  const platformItems = await fetchPlatformContent("innovation-product", { limit: "100" });
+  if (platformItems) return platformItems as InnovationProduct[];
   const params = new URLSearchParams();
   params.set("sort[0]", "sortOrder:asc");
   params.set("populate[mediaImage][fields][0]", "url");
@@ -1330,7 +1338,7 @@ export async function fetchInnovationProducts(): Promise<InnovationProduct[]> {
   params.set("populate[detailImage][fields][0]", "url");
   params.set("populate[detailImages][fields][0]", "url");
   params.set("pagination[pageSize]", "20");
-  const url = `${STRAPI_URL}/api/innovation-products?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchInnovationProducts", res); return []; }
@@ -1384,12 +1392,14 @@ export type InnovationService = {
 };
 
 export async function fetchInnovationServices(): Promise<InnovationService[]> {
+  const platformItems = await fetchPlatformContent("innovation-service", { limit: "100" });
+  if (platformItems) return platformItems as InnovationService[];
   const params = new URLSearchParams();
   params.set("sort[0]", "sortOrder:asc");
   params.set("populate[mediaImage][fields][0]", "url");
   params.set("populate[mediaImages][fields][0]", "url");
   params.set("pagination[pageSize]", "20");
-  const url = `${STRAPI_URL}/api/innovation-services?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchInnovationServices", res); return []; }
   const json: { data: Array<{
@@ -1432,12 +1442,14 @@ export type InnovationSolution = {
 };
 
 export async function fetchInnovationSolutions(): Promise<InnovationSolution[]> {
+  const platformItems = await fetchPlatformContent("innovation-solution", { limit: "100" });
+  if (platformItems) return platformItems as InnovationSolution[];
   const params = new URLSearchParams();
   params.set("sort[0]", "sortOrder:asc");
   params.set("populate[mediaImage][fields][0]", "url");
   params.set("populate[mediaImages][fields][0]", "url");
   params.set("pagination[pageSize]", "20");
-  const url = `${STRAPI_URL}/api/innovation-solutions?${params.toString()}`;
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res || !res.ok) { reportStrapiResponseFailure("fetchInnovationSolutions", res); return []; }
   const json: { data: Array<{
@@ -1477,20 +1489,8 @@ export type TechnologyCategory = {
 };
 
 export async function fetchTechnologyCategories(): Promise<TechnologyCategory[]> {
-  const url = `${STRAPI_URL}/api/technology-categories?sort[0]=sortOrder:asc&pagination[pageSize]=20`;
-  const res = await safeFetch(url, { next: { revalidate: 300 } });
-  if (!res || !res.ok) { reportStrapiResponseFailure("fetchTechnologyCategories", res); return []; }
-  const json: { data: Array<{ id: number; categoryId: string; label: string; description: string | null; items: string[] | null; iconName: string }> } = await res!.json();
-  return (json.data ?? []).map((item) => ({
-    ...item,
-    description: item.description ?? "",
-    items: item.items ?? [],
-    iconName: item.iconName ?? "Code2",
-  }));
+  return (await fetchPlatformContent("technology-category", { limit: "100" }) ?? []) as TechnologyCategory[];
 }
-
-// ─── Standards / Trust Seals ─────────────────────────────────────────────────
-
 export type Standard = {
   id: number;
   title: string;
@@ -1502,7 +1502,9 @@ export type Standard = {
 };
 
 export async function fetchStandards(): Promise<Standard[]> {
-  const url = `${STRAPI_URL}/api/standards?sort[0]=sortOrder:asc&populate[image][fields][0]=url&pagination[pageSize]=50`;
+  const platformItems = await fetchPlatformContent("standard", { limit: "100" });
+  if (platformItems) return platformItems as Standard[];
+  const url = "";
   const res = await safeFetch(url, { next: { revalidate: 300 } });
   if (!res) return [];
   if (!res.ok) { reportStrapiResponseFailure("fetchStandards", res); return []; }
@@ -1518,6 +1520,60 @@ export async function fetchStandards(): Promise<Standard[]> {
   }));
 }
 
+// ─── Our Legacy — Certificates ────────────────────────────────────────────────
+
+export type CertificateOrientation = "portrait" | "landscape" | "square";
+export type CertificateOwnerType = "company" | "personal";
+
+export type Certificate = {
+  id: number;
+  title: string;
+  issuer: string;
+  owner?: string | null;
+  ownerType?: CertificateOwnerType;
+  description: string;
+  orientation: CertificateOrientation;
+  image: string;
+  imageAlt: string | null;
+  file?: string | null;
+};
+
+export async function fetchCertificates(): Promise<Certificate[]> {
+  const platformResponse = await fetchPlatformSingleton<Array<Record<string, any>>>("/api/public/certificates");
+  if (platformResponse) return platformResponse.map((item, index) => ({ id: index + 1, title: item.title, issuer: item.issuer, owner: item.owner ?? null, ownerType: item.ownerType ?? "company", description: item.description ?? "", orientation: item.orientation ?? "portrait", image: typeof item.image === "string" ? item.image : item.image?.url ?? "", imageAlt: item.imageAlt ?? null, file: typeof item.file === "string" ? item.file : item.file?.url ?? null }));
+  const url = "";
+  const res = await safeFetch(url, { next: { revalidate: 300 } });
+  if (!res) return [];
+  if (!res.ok) { reportStrapiResponseFailure("fetchCertificates", res); return []; }
+  const json: {
+    data: Array<{
+      id: number;
+      title: string;
+      issuer: string;
+      owner?: string | null;
+      ownerType?: CertificateOwnerType | null;
+      description: string | null;
+      orientation: CertificateOrientation | null;
+      image: { url: string } | null;
+      imageAlt: string | null;
+      file: { url: string } | null;
+    }>;
+  } = await res!.json();
+
+  return (json.data ?? []).map((item) => ({
+    id: item.id,
+    title: item.title,
+    issuer: item.issuer,
+    owner: item.owner ?? null,
+    ownerType: item.ownerType ?? "company",
+    description: item.description ?? "",
+    orientation: item.orientation ?? "portrait",
+    image: item.image?.url ? resolveMediaUrl(item.image.url) : "",
+    imageAlt: item.imageAlt,
+    file: item.file?.url ? resolveMediaUrl(item.file.url) : null,
+  }));
+}
+
 export type SanHubCourseCategory = {
   id: number;
   name: string;
@@ -1527,33 +1583,11 @@ export type SanHubCourseCategory = {
 };
 
 export async function fetchSanHubCourseCategories(): Promise<SanHubCourseCategory[]> {
-  const params = new URLSearchParams();
-  params.set("sort[0]", "sortOrder:asc");
-  params.set("filters[isActive][$eq]", "true");
-  params.set("pagination[pageSize]", "100");
-
-  const url = `${STRAPI_URL}/api/course-categories?${params.toString()}`;
-  const res = await safeFetch(url, { next: { revalidate: 60 } });
-  if (!res || !res.ok) {
-    reportStrapiResponseFailure("fetchSanHubCourseCategories", res);
-    return [];
-  }
-
-  const json: {
-    data: Array<{
-      id: number;
-      name: string;
-      slug: string;
-      description: string | null;
-      sortOrder: number;
-    }>;
-  } = await res.json();
-
-  return (json.data ?? []).map((item) => ({
-    id: item.id,
-    name: item.name,
-    slug: item.slug,
-    description: item.description,
-    sortOrder: item.sortOrder ?? 0,
-  }));
+  return (await fetchPlatformContent("course-category", { limit: "100" }) ?? []) as SanHubCourseCategory[];
 }
+
+
+
+
+
+
